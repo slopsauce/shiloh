@@ -139,8 +139,17 @@ fn main() {
         )),
     };
     eprintln!("xf-prep: data {}  cache {}  ({version})", data.display(), cache.display());
+    // the game data, then every other language folder of the discs given (the EN DVD Edition's `Francais/`, mounted
+    // by the VFS as `<data>/fr.lang`): its movies of the same names are other files (French sound) and get entries too
+    let mut sets = vec![data.clone()];
+    for (d, _) in xf::vfs::lang_sets(&data, None, &mut |l| eprintln!("xf-prep: {l}")) {
+        if !sets.contains(&d) {
+            eprintln!("xf-prep: also the language folder {}", d.display());
+            sets.push(d);
+        }
+    }
     let (mut made, mut kept, mut failed, mut scanned) = (0, 0, 0, 0);
-    for f in files(&data) {
+    for (f, base) in sets.iter().flat_map(|s| files(s).into_iter().map(move |f| (f, s))) {
         // QuickTime files only: parse the header (a few reads); anything else is skipped
         let Ok(movie) = Movie::open_header(&f) else { continue };
         scanned += 1;
@@ -148,7 +157,11 @@ fn main() {
         if &t.fourcc != b"QDMC" {
             continue;
         }
-        let rel = f.strip_prefix(&data).unwrap_or(&f).display().to_string();
+        let rel = match f.strip_prefix(base) {
+            Ok(r) if base == &data => r.display().to_string(),
+            Ok(r) => format!("{}/{}", base.file_name().map(|n| n.to_string_lossy()).unwrap_or_default(), r.display()),
+            Err(_) => f.display().to_string(),
+        };
         let bytes = xf::io::read(&f).unwrap_or_else(|e| die(&format!("{}: {e}", f.display())));
         let sd = t.snd.unwrap_or_else(|| die(&format!("{rel}: QDMC track without a sound description")));
         if !force && pcmcache::is_fresh(&cache, &f, &bytes) {
@@ -156,13 +169,24 @@ fn main() {
             println!("{rel:<16} cached");
             continue;
         }
+        // ffmpeg opens real files only: a file inside a disc image (a VFS path) is handed over as a temporary copy
+        // (QuickTime needs a seekable input, so no pipe)
+        let tmp = (!std::fs::metadata(&f).is_ok_and(|m| m.is_file())).then(|| {
+            let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let p = std::env::temp_dir().join(format!("xf-prep-{}-{name}", std::process::id()));
+            std::fs::write(&p, &bytes).unwrap_or_else(|e| die(&format!("{}: {e}", p.display())));
+            p
+        });
         let out = Command::new(&ffmpeg)
             .args(["-nostdin", "-v", "error", "-ignore_editlist", "1", "-i"])
-            .arg(&f)
+            .arg(tmp.as_deref().unwrap_or(&f))
             .args(["-map", "0:a:0", "-f", "s16le", "-c:a", "pcm_s16le", "-"])
             .stdin(Stdio::null())
-            .output()
-            .unwrap_or_else(|e| die(&format!("{}: {e}", ffmpeg.display())));
+            .output();
+        if let Some(p) = &tmp {
+            let _ = std::fs::remove_file(p);
+        }
+        let out = out.unwrap_or_else(|e| die(&format!("{}: {e}", ffmpeg.display())));
         if !out.status.success() || out.stdout.is_empty() {
             failed += 1;
             println!("{rel:<16} FAILED: {}", String::from_utf8_lossy(&out.stderr).trim());

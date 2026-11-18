@@ -8,6 +8,8 @@
 //! Layout: `<dir>/qdmc-v1/<key>.wav` (RIFF WAVE, 16-bit PCM, interleaved) + `<key>.json` (source size, FNV-1a 64 hash
 //! of the whole source file, rate, channels, frames, ffmpeg version). `key` = the movie's directory and file name in
 //! lower case (`xv/64421.xmv`). An entry is used only when size and hash match the movie being played.
+//! Two different files with the same key (the EN DVD Edition's English and French `XV/64421.xmv`) both fit: the first
+//! one stored takes `<key>`, any other one `<key>.<fnv64 hex>` ([`variant`]); [`load`] tries `<key>` then the variant.
 //!
 //! The cache dir: [`set_dir`] (`--cache DIR` of xf / xf-serve / xf-prep), else `XF_CACHE`, else the platform user cache
 //! dir + `/xf` (macOS `~/Library/Caches/xf`, Linux `$XDG_CACHE_HOME/xf` or `~/.cache/xf`, Windows
@@ -143,9 +145,27 @@ pub enum Miss {
     Stale(String),
 }
 
-/// The cached media PCM of the movie `movie` whose whole file is `data` (before the edit list).
+/// The key of the entry for a file with this content when `<key>` holds another file: `<key>.<fnv64 hex>`.
+pub fn variant(key: &str, data: &[u8]) -> String {
+    format!("{key}.{:016x}", fnv64(data))
+}
+
+/// The cached media PCM of the movie `movie` whose whole file is `data` (before the edit list): the entry `<key>`,
+/// else its content variant (another language's file of the same name).
 pub fn load(dir: &Path, movie: &Path, data: &[u8]) -> Result<Pcm, Miss> {
-    let (w, j) = paths(dir, &key(movie));
+    let k = key(movie);
+    match load_key(dir, &k, data) {
+        Ok(p) => Ok(p),
+        Err(first) => match load_key(dir, &variant(&k, data), data) {
+            Ok(p) => Ok(p),
+            Err(Miss::Absent) => Err(first),
+            Err(e) => Err(e),
+        },
+    }
+}
+
+fn load_key(dir: &Path, key: &str, data: &[u8]) -> Result<Pcm, Miss> {
+    let (w, j) = paths(dir, key);
     let meta = crate::io::read(&j).map_err(|_| Miss::Absent)?;
     let m: serde_json::Value =
         serde_json::from_slice(&meta).map_err(|e| Miss::Stale(format!("{}: {e}", j.display())))?;
@@ -160,8 +180,11 @@ pub fn load(dir: &Path, movie: &Path, data: &[u8]) -> Result<Pcm, Miss> {
 
 /// Write the entry for `movie` (whole file `data`) with std::fs: the WAV first, then the JSON (an entry counts only with
 /// its JSON), each through a temporary file + rename.
+/// The entry goes to `<key>` unless `<key>` already holds a valid entry of another file (then to its variant).
 pub fn store(dir: &Path, movie: &Path, data: &[u8], pcm: &Pcm, ffmpeg: &str) -> std::io::Result<()> {
-    let (w, j) = paths(dir, &key(movie));
+    let k = key(movie);
+    let other = matches!(load_key(dir, &k, data), Err(Miss::Stale(_))) && held(dir, &k);
+    let (w, j) = paths(dir, &if other { variant(&k, data) } else { k.clone() });
     if let Some(p) = w.parent() {
         std::fs::create_dir_all(p)?;
     }
@@ -183,6 +206,16 @@ pub fn store(dir: &Path, movie: &Path, data: &[u8], pcm: &Pcm, ffmpeg: &str) -> 
     let _ = std::fs::remove_file(&j);
     put(&w, &wav_bytes(pcm))?;
     put(&j, serde_json::to_string_pretty(&meta).unwrap().as_bytes())
+}
+
+/// Whether `<key>` holds a well-formed entry (of whatever file): a damaged one is overwritten, not kept beside.
+fn held(dir: &Path, key: &str) -> bool {
+    let (w, j) = paths(dir, key);
+    let ok_json = std::fs::read(&j)
+        .ok()
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        .is_some_and(|m| m["size"].as_u64().is_some() && m["fnv64"].as_str().is_some());
+    ok_json && std::fs::read(&w).ok().and_then(|b| parse_wav(&b)).is_some()
 }
 
 /// Whether `dir` holds a valid entry for `movie` (whole file `data`): JSON matches and the WAV header parses.
@@ -259,6 +292,37 @@ mod tests {
         assert!(e.contains("size / hash differ"), "{e}");
         let e = crate::media::qdmc(Some(dir.clone()), Path::new("/game/XV/88888.xmv"), &movie, &data).unwrap_err();
         assert!(e.contains("not in the PCM cache"), "{e}");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Two different files of the same name (the EN DVD's English and French `XV/64421.xmv`): both stay cached, each
+    /// found by its own content; storing one again replaces only its own entry; a damaged `<key>` is overwritten.
+    #[test]
+    fn same_name_other_language_both_cached() {
+        let dir = std::env::temp_dir().join(format!("xf-pcmcache-variant-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let en_movie = Path::new("/disc/English/XV/64421.xmv");
+        let fr_movie = Path::new("/disc/fr.lang/XV/64421.XMV");
+        let (en, fr) = (b"english file".as_slice(), b"french file!".as_slice());
+        let pe = Pcm { rate: 22050, channels: 1, samples: vec![1, 2, 3] };
+        let pf = Pcm { rate: 22050, channels: 1, samples: vec![7, 8, 9, 10] };
+        store(&dir, en_movie, en, &pe, "test").unwrap();
+        store(&dir, fr_movie, fr, &pf, "test").unwrap();
+        assert_eq!(load(&dir, en_movie, en).unwrap().samples, pe.samples);
+        assert_eq!(load(&dir, fr_movie, fr).unwrap().samples, pf.samples);
+        assert!(dir.join(SUBDIR).join(format!("{}.wav", variant("xv/64421.xmv", fr))).is_file());
+        // a third file of that name: not cached, reported as stale (the `<key>` entry is another file's)
+        assert!(matches!(load(&dir, en_movie, b"third"), Err(Miss::Stale(_))));
+        // re-storing the English one keeps it in `<key>` (no variant of its own)
+        store(&dir, en_movie, en, &pe, "test").unwrap();
+        assert!(!dir.join(SUBDIR).join(format!("{}.wav", variant("xv/64421.xmv", en))).exists());
+        // a damaged `<key>` entry is replaced, not kept beside
+        let (w, _) = paths(&dir, "xs/72106.mus");
+        std::fs::create_dir_all(w.parent().unwrap()).unwrap();
+        std::fs::write(paths(&dir, "xs/72106.mus").1, b"{not json").unwrap();
+        store(&dir, Path::new("/d/XS/72106.mus"), en, &pe, "test").unwrap();
+        assert_eq!(load(&dir, Path::new("/d/XS/72106.mus"), en).unwrap().samples, pe.samples);
+        assert!(!dir.join(SUBDIR).join(format!("{}.wav", variant("xs/72106.mus", en))).exists());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

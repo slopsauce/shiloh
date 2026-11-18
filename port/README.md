@@ -64,6 +64,12 @@ track and writes `qdmc-v1/<dir>/<file>.wav` + `.json` (source size and hash, rat
 about 160 MB for all 14 files, in a few seconds. Nothing is written into the game's data dir; ffmpeg is not linked
 into or shipped with the port. Running it again only converts what is missing or stale (`--force` redoes all).
 
+`--data` may also be a disc image: a QDMC file inside it is handed to ffmpeg as a temporary copy (deleted right after).
+The disc's other language folders are converted too (the EN DVD Edition's `Francais/`, whose files of the same names
+can be other files than the English ones, e.g. `XV/64421.xmv`; its `English/` holds 15 QDMC files, `XS/92289.dmv`
+included); such a file is cached beside the
+English one as `qdmc-v1/<dir>/<file>.<fnv64>.wav` + `.json`, and the engine finds each by its content.
+
 Options: `--cache DIR` (default `XF_CACHE`, else the user cache dir: macOS `~/Library/Caches/xf`, Linux
 `$XDG_CACHE_HOME/xf` or `~/.cache/xf`, Windows `%LOCALAPPDATA%\xf\cache`), `--ffmpeg PATH` (default `XF_FFMPEG`, else
 `ffmpeg` from `PATH`), `--data DIR`.
