@@ -1,0 +1,12 @@
+[package]
+name = "qdmc"
+version = "0.1.0"
+edition = "2021"
+description = "QDesign Music Codec 1 (QDMC) decoder in pure Rust, ported from FFmpeg's libavcodec/qdmc.c"
+license = "LGPL-2.1-or-later"
+publish = false
+
+[dependencies]
+
+[profile.release]
+debug = false
