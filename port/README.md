@@ -81,6 +81,12 @@ default place; pass `--cache DIR` to both if you used another one. `xf-serve` se
 Check: `cargo test --release --no-default-features --test qdmc` converts the tracks into a temporary cache and checks
 that the New Game intro music comes out non-silent (skipped without the game data or ffmpeg).
 
+Or build with the optional `qdmc` feature (`cargo build --release --features qdmc`): the engine then decodes QDMC
+tracks itself with the [qdmc crate](../qdmc) (a pure-Rust port of FFmpeg's decoder, LGPL-2.1-or-later — a binary
+built with the feature is distributed under the LGPL terms), when a sound is first played, without ffmpeg, `xf-prep`
+or the PCM cache. The longest track (`XS/72106.mus`, 5 min 45) decodes in about half a second on one core (measured on
+a 2-vCPU Linux VM). The crate is in this repository (`qdmc/`, its own licence).
+
 ## English subtitles from your English copy (one-time step)
 
 The RU release's movies have no subtitle text (their QuickTime text tracks were removed). The English game has them —

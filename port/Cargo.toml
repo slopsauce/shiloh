@@ -17,8 +17,14 @@ sdl = ["dep:sdl2", "dep:gl", "dep:rfd"]
 # binary needs no SDL2 library or pkg-config on the user's machine (SDL2 is Zlib-licensed, see LICENSE-THIRD-PARTY).
 # With CMake >= 4 set CMAKE_POLICY_VERSION_MINIMUM=3.5 (SDL 2.26's CMakeLists is older); .github/scripts/package.sh does.
 sdl-bundled = ["sdl", "sdl2/bundled", "sdl2/static-link"]
+# decode QDMC (QDesign Music) sound tracks in-process with the qdmc crate — a port of FFmpeg's decoder, so under
+# LGPL-2.1-or-later: a build with this feature is a combined work under the LGPL terms (see the qdmc crate's COPYING).
+# Without it, QDMC tracks need the one-time `xf-prep` conversion with the user's ffmpeg.
+qdmc = ["dep:qdmc"]
 
 [dependencies]
+# optional, feature `qdmc`: the qdmc crate of this repository (../qdmc, LGPL-2.1-or-later)
+qdmc = { path = "../qdmc", optional = true }
 serde_json = "1"
 jpeg-decoder = { version = "0.3", default-features = false }
 sdl2 = { version = "0.37", optional = true, features = ["use-pkgconfig"] }

@@ -293,6 +293,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "qdmc"
+version = "0.1.0"
+
+[[package]]
 name = "quote"
 version = "1.0.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -575,6 +579,7 @@ dependencies = [
  "dunce",
  "gl",
  "jpeg-decoder",
+ "qdmc",
  "rfd",
  "sdl2",
  "serde_json",

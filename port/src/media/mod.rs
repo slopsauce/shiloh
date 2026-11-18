@@ -131,10 +131,19 @@ pub fn sound(path: &Path) -> Result<audio::Pcm, String> {
     audio::decode(&movie, &data).map_err(|e| format!("{}: {e}", path.display()))
 }
 
+#[cfg(not(feature = "qdmc"))]
 static QDMC_HINT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// A QDMC sound track: the PCM cached by `xf-prep` in `dir` ([`pcmcache`]) placed by the track's length and edit list. Without
-/// an entry: Err, the first time with a hint how to make the cache.
+/// A QDMC sound track placed by the track's length and edit list. With the `qdmc` feature: decoded here by the qdmc
+/// crate (no cache; the session keeps decoded sounds in memory). Without it: the PCM cached by `xf-prep` in `dir`
+/// ([`pcmcache`]); without an entry Err, the first time with a hint how to make the cache.
+#[cfg(feature = "qdmc")]
+pub(crate) fn qdmc(_dir: Option<PathBuf>, path: &Path, movie: &Movie, data: &[u8]) -> Result<audio::Pcm, String> {
+    let p = qdmc_decode(movie, data).map_err(|e| format!("{}: QDMC sound: {e}", path.display()))?;
+    Ok(audio::place(movie, p))
+}
+
+#[cfg(not(feature = "qdmc"))]
 pub(crate) fn qdmc(dir: Option<PathBuf>, path: &Path, movie: &Movie, data: &[u8]) -> Result<audio::Pcm, String> {
     let miss = match dir {
         Some(d) => match pcmcache::load(&d, path, data) {
@@ -149,6 +158,25 @@ pub(crate) fn qdmc(dir: Option<PathBuf>, path: &Path, movie: &Movie, data: &[u8]
         e.push_str(" — QDMC music plays after a one-time conversion with your ffmpeg: cargo run --release --bin xf-prep -- --data DIR [--cache DIR] (see port/README.md)");
     }
     Err(e)
+}
+
+/// The whole media of the first sound track, decoded by the qdmc crate (feature `qdmc`): its sample description
+/// holds the codec configuration, its chunks whole frames of fixed size.
+#[cfg(feature = "qdmc")]
+fn qdmc_decode(movie: &Movie, data: &[u8]) -> Result<audio::Pcm, String> {
+    let t = audio::sound_track(movie).ok_or("no sound track")?;
+    let mut dec = qdmc::Decoder::new(&t.sound_desc).map_err(|e| e.to_string())?;
+    let (fs, fb) = (dec.frame_samples(), dec.frame_bytes());
+    let mut samples = Vec::new();
+    for &(off, frames) in &t.chunks {
+        let n = (frames as usize).div_ceil(fs) * fb;
+        let chunk = data.get(off as usize..off as usize + n).ok_or("QDMC chunk past the end of the file")?;
+        for f in chunk.chunks_exact(fb) {
+            // a bad frame is dropped (the decoder resets), as FFmpeg does
+            let _ = dec.decode_frame(f, &mut samples);
+        }
+    }
+    Ok(audio::Pcm { rate: dec.sample_rate(), channels: dec.channels() as u16, samples })
 }
 
 enum Dec {

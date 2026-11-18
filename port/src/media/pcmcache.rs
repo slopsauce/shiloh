@@ -242,6 +242,7 @@ mod tests {
     /// the engine path ([`crate::media::qdmc`]) loads it and places it by the track's length and edit list; a changed
     /// source file makes the entry stale; no entry gives the error with the one-time hint.
     #[test]
+    #[cfg(not(feature = "qdmc"))] // with the feature, QDMC tracks never come from the cache
     fn synthetic_entry_placed_by_edit_list() {
         use crate::media::qt::{Edit, Handler, Movie, SoundDesc, Track};
         let rate = 1000;
@@ -269,6 +270,7 @@ mod tests {
             track_h: 0,
             text: None,
             sample_codecs: Vec::new(),
+            sound_desc: Vec::new(),
         };
         let movie = Movie { timescale: 600, duration: 48, tracks: vec![track] };
         let dir = std::env::temp_dir().join(format!("xf-pcmcache-test-{}", std::process::id()));

@@ -53,6 +53,9 @@ pub struct Track {
     /// track's stsd entries name more than one codec (NAV2..NAV6.NMV track 1: a 'cvid' still among the 'jpeg' ones);
     /// empty = every sample is `fourcc`
     pub sample_codecs: Vec<[u8; 4]>,
+    /// sound tracks: the bytes of the first sample description entry (codec configuration, e.g. QDMC's
+    /// `frma`/`QDCA` atoms); empty for other tracks
+    pub sound_desc: Vec<u8>,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -218,12 +221,15 @@ impl Track {
         let e = &stsd[8..];
         let fourcc = [e.get(4).copied()?, e[5], e[6], e[7]];
         let (mut width, mut height, mut snd, mut text) = (0, 0, None, None);
+        let mut sound_desc = Vec::new();
         match handler {
             Handler::Video => {
                 width = be16(e, 32);
                 height = be16(e, 34);
             }
             Handler::Sound => {
+                let size = (be32(e, 0) as usize).min(e.len());
+                sound_desc = e[..size].to_vec();
                 let ver = be16(e, 16);
                 let mut s = SoundDesc {
                     channels: be16(e, 24),
@@ -336,6 +342,7 @@ impl Track {
             track_h: be32(tkhd, 80) >> 16,
             text,
             sample_codecs,
+            sound_desc,
         })
     }
 

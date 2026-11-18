@@ -388,6 +388,7 @@ mod tests {
                 font_name: "Geneva".into(),
             }),
             sample_codecs: Vec::new(),
+            sound_desc: Vec::new(),
         }
     }
 

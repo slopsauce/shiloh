@@ -204,8 +204,10 @@ Shiloh is licensed under either of
 - Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
 - MIT License ([LICENSE-MIT](LICENSE-MIT))
 
-at your option. Third-party notices: [port/LICENSE-THIRD-PARTY](port/LICENSE-THIRD-PARTY); the programs print them
-with `--licenses`, and the browser version links them from its bottom bar.
+at your option — except the `qdmc/` directory (a QDMC decoder ported from FFmpeg), which is LGPL-2.1-or-later
+([qdmc/COPYING](qdmc/COPYING)) and is only built with `port`'s optional `qdmc` feature (such a build is distributed
+under the LGPL terms). Third-party notices: [port/LICENSE-THIRD-PARTY](port/LICENSE-THIRD-PARTY); the programs print
+them with `--licenses`, and the browser version links them from its bottom bar.
 
 Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in Shiloh by you, as
 defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
